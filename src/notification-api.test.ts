@@ -168,7 +168,7 @@ const getTemplate = (
   return notificationTemplateE;
 };
 
-const getEmailNotifications = (
+const getEmailNotification = (
   registration: EmailNotificationRegistration,
   cmd: SendTextNotificationCommand,
   template: string
@@ -186,36 +186,11 @@ const getSmsNotification = (
   text: Mustache.render(template, { message: cmd.message }),
 });
 
-const getNotifications = (
+const getSmsNotifications = (
   userNotificationPreferences: UserNotificationPreferences,
   cmd: SendTextNotificationCommand,
   templates: NotificationTemplate[]
-): Either<TemplateDoesNotExist, Notification>[] => {
-  // Email
-  const notifications: Either<TemplateDoesNotExist, Notification>[] = pipe(
-    userNotificationPreferences.notificationRegistrations,
-    A.filter(isEmailNotificationRegistration),
-    A.map((emailNotificationRegistration) => {
-      const notificationTemplateE = getTemplate(
-        templates,
-        "SendTextNotificationCommand",
-        "EmailNotificationRegistration"
-      );
-
-      return pipe(
-        notificationTemplateE,
-        E.map((notificationTemplate) =>
-          getEmailNotifications(
-            emailNotificationRegistration,
-            cmd,
-            notificationTemplate.template
-          )
-        )
-      );
-    })
-  );
-
-  // SMS:
+) => {
   const smsNotifications: Either<TemplateDoesNotExist, Notification>[] = pipe(
     userNotificationPreferences.notificationRegistrations,
     A.filter(isSmsNotificationRegistration),
@@ -238,7 +213,50 @@ const getNotifications = (
       );
     })
   );
-  return pipe([notifications, smsNotifications], A.flatten);
+  return smsNotifications;
+};
+
+const getEmailNotifications = (
+  userNotificationPreferences: UserNotificationPreferences,
+  cmd: SendTextNotificationCommand,
+  templates: NotificationTemplate[]
+): Either<TemplateDoesNotExist, Notification>[] => {
+  return pipe(
+    userNotificationPreferences.notificationRegistrations,
+    A.filter(isEmailNotificationRegistration),
+    A.map((emailNotificationRegistration) => {
+      const notificationTemplateE = getTemplate(
+        templates,
+        "SendTextNotificationCommand",
+        "EmailNotificationRegistration"
+      );
+
+      return pipe(
+        notificationTemplateE,
+        E.map((notificationTemplate) =>
+          getEmailNotification(
+            emailNotificationRegistration,
+            cmd,
+            notificationTemplate.template
+          )
+        )
+      );
+    })
+  );
+};
+
+const getNotifications = (
+  userNotificationPreferences: UserNotificationPreferences,
+  cmd: SendTextNotificationCommand,
+  templates: NotificationTemplate[]
+): Either<TemplateDoesNotExist, Notification>[] => {
+  return pipe(
+    [
+      getEmailNotifications(userNotificationPreferences, cmd, templates),
+      getSmsNotifications(userNotificationPreferences, cmd, templates),
+    ],
+    A.flatten
+  );
 };
 
 describe("getNotifications with SetTextNotificationCommand and EmailNotification", () => {
