@@ -217,36 +217,59 @@ const getSmsNotifications = (
   return smsNotifications;
 };
 
+const getCmdNotificationsT =
+  <TNotificationRegistration, TNotification, TCommand>(
+    getNotifications: (
+      r: TNotificationRegistration,
+      c: TCommand,
+      t: string
+    ) => TNotification,
+    commandType: CommandType,
+    registrationType: NotificationRegistrationType
+  ) =>
+  (templates: NotificationTemplate[]) =>
+  (cmd: TCommand) =>
+  (
+    notificationRegistrations: TNotificationRegistration[]
+  ): Either<TemplateDoesNotExist, TNotification>[] =>
+    pipe(
+      notificationRegistrations,
+      A.map((notificationRegistration) => {
+        const notificationTemplateE = getTemplate(
+          templates,
+          commandType,
+          registrationType
+        );
+
+        return pipe(
+          notificationTemplateE,
+          E.map((notificationTemplate) =>
+            getNotifications(
+              notificationRegistration,
+              cmd,
+              notificationTemplate.template
+            )
+          )
+        );
+      })
+    );
+
+const getSendTextEmailNotifications = getCmdNotificationsT(
+  getEmailNotification,
+  "SendTextNotificationCommand",
+  "EmailNotificationRegistration"
+);
+
 const getEmailNotifications = (
   userNotificationPreferences: UserNotificationPreferences,
   cmd: SendTextNotificationCommand,
   templates: NotificationTemplate[]
-): Either<TemplateDoesNotExist, Notification>[] => {
-  const emailNotifications =
-    userNotificationPreferences.notificationRegistrations;
-  return pipe(
-    emailNotifications,
+): Either<TemplateDoesNotExist, Notification>[] =>
+  pipe(
+    userNotificationPreferences.notificationRegistrations,
     A.filter(isEmailNotificationRegistration),
-    A.map((emailNotificationRegistration) => {
-      const notificationTemplateE = getTemplate(
-        templates,
-        "SendTextNotificationCommand",
-        "EmailNotificationRegistration"
-      );
-
-      return pipe(
-        notificationTemplateE,
-        E.map((notificationTemplate) =>
-          getEmailNotification(
-            emailNotificationRegistration,
-            cmd,
-            notificationTemplate.template
-          )
-        )
-      );
-    })
+    getSendTextEmailNotifications(templates)(cmd)
   );
-};
 
 const getOrderDispatchedSmsNotification = (
   registration: SmsNotificationRegistration,
