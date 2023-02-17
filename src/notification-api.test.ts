@@ -169,54 +169,6 @@ const getTemplate = (
   return notificationTemplateE;
 };
 
-const getEmailNotification = (
-  registration: EmailNotificationRegistration,
-  cmd: SendTextNotificationCommand,
-  template: string
-): EmailNotification => ({
-  emailAddress: registration.emailAddress,
-  body: Mustache.render(template, { message: cmd.message }),
-});
-
-const getSmsNotification = (
-  registration: SmsNotificationRegistration,
-  cmd: SendTextNotificationCommand,
-  template: string
-): SmsNotification => ({
-  phoneNumber: registration.phoneNumber,
-  text: Mustache.render(template, { message: cmd.message }),
-});
-
-const getSmsNotifications = (
-  userNotificationPreferences: UserNotificationPreferences,
-  cmd: SendTextNotificationCommand,
-  templates: NotificationTemplate[]
-) => {
-  const smsNotifications: Either<TemplateDoesNotExist, Notification>[] = pipe(
-    userNotificationPreferences.notificationRegistrations,
-    A.filter(isSmsNotificationRegistration),
-    A.map((smsNotificationRegistration) => {
-      const notificationTemplateE = getTemplate(
-        templates,
-        "SendTextNotificationCommand",
-        "SmsNotificationRegistration"
-      );
-
-      return pipe(
-        notificationTemplateE,
-        E.map((notificationTemplate) =>
-          getSmsNotification(
-            smsNotificationRegistration,
-            cmd,
-            notificationTemplate.template
-          )
-        )
-      );
-    })
-  );
-  return smsNotifications;
-};
-
 const getCmdNotificationsT =
   <TNotificationRegistration, TNotification, TCommand>(
     getNotifications: (
@@ -254,6 +206,17 @@ const getCmdNotificationsT =
       })
     );
 
+// SendText : Email
+
+const getEmailNotification = (
+  registration: EmailNotificationRegistration,
+  cmd: SendTextNotificationCommand,
+  template: string
+): EmailNotification => ({
+  emailAddress: registration.emailAddress,
+  body: Mustache.render(template, { message: cmd.message }),
+});
+
 const getSendTextEmailNotifications = getCmdNotificationsT(
   getEmailNotification,
   "SendTextNotificationCommand",
@@ -271,6 +234,36 @@ const getEmailNotifications = (
     getSendTextEmailNotifications(templates)(cmd)
   );
 
+// SendText: Sms
+
+const getSmsNotification = (
+  registration: SmsNotificationRegistration,
+  cmd: SendTextNotificationCommand,
+  template: string
+): SmsNotification => ({
+  phoneNumber: registration.phoneNumber,
+  text: Mustache.render(template, { message: cmd.message }),
+});
+
+const getSendTextSmsNotifications = getCmdNotificationsT(
+  getSmsNotification,
+  "SendTextNotificationCommand",
+  "SmsNotificationRegistration"
+);
+
+const getSmsNotifications = (
+  userNotificationPreferences: UserNotificationPreferences,
+  cmd: SendTextNotificationCommand,
+  templates: NotificationTemplate[]
+): Either<TemplateDoesNotExist, Notification>[] =>
+  pipe(
+    userNotificationPreferences.notificationRegistrations,
+    A.filter(isSmsNotificationRegistration),
+    getSendTextSmsNotifications(templates)(cmd)
+  );
+
+// OrderDispatched : Sms
+
 const getOrderDispatchedSmsNotification = (
   registration: SmsNotificationRegistration,
   cmd: SendOrderDispatchedCommand,
@@ -282,37 +275,26 @@ const getOrderDispatchedSmsNotification = (
   };
 };
 
+const getOrderDispatchSmsNotificationsT = getCmdNotificationsT(
+  getOrderDispatchedSmsNotification,
+  "SendOrderDispatchedCommand",
+  "SmsNotificationRegistration"
+);
+
 const getOrderDispatchedSmsNotifications = (
   userNotificationPreferences: UserNotificationPreferences,
   cmd: SendOrderDispatchedCommand,
   templates: NotificationTemplate[]
-): Either<TemplateDoesNotExist, Notification>[] => {
-  const smsNotifications: Either<TemplateDoesNotExist, Notification>[] = pipe(
+): Either<TemplateDoesNotExist, Notification>[] =>
+  pipe(
     userNotificationPreferences.notificationRegistrations,
     A.filter(isSmsNotificationRegistration),
-    A.map((smsNotificationRegistration) => {
-      const notificationTemplateE = getTemplate(
-        templates,
-        "SendOrderDispatchedCommand",
-        "SmsNotificationRegistration"
-      );
-
-      return pipe(
-        notificationTemplateE,
-        E.map((notificationTemplate) =>
-          getOrderDispatchedSmsNotification(
-            smsNotificationRegistration,
-            cmd,
-            notificationTemplate.template
-          )
-        )
-      );
-    })
+    getOrderDispatchSmsNotificationsT(templates)(cmd)
   );
-  return smsNotifications;
-};
 
-const getSendOrderDispatchedNotifications = (
+// Top level
+
+const getAllSendOrderDispatchedNotifications = (
   userNotificationPreferences: UserNotificationPreferences,
   cmd: SendOrderDispatchedCommand,
   templates: NotificationTemplate[]
@@ -324,7 +306,7 @@ const getSendOrderDispatchedNotifications = (
   );
 };
 
-const getNotifications = (
+const getAllSendMessageNotifications = (
   userNotificationPreferences: UserNotificationPreferences,
   cmd: SendTextNotificationCommand,
   templates: NotificationTemplate[]
@@ -358,7 +340,9 @@ describe("getNotifications with SetTextNotificationCommand and EmailNotification
       [];
 
     expect(
-      getNotifications(userNotificationPreferences, cmd, [emailBodyTemplate])
+      getAllSendMessageNotifications(userNotificationPreferences, cmd, [
+        emailBodyTemplate,
+      ])
     ).toEqual(expectedResult);
   });
 
@@ -390,7 +374,9 @@ describe("getNotifications with SetTextNotificationCommand and EmailNotification
     ];
 
     expect(
-      getNotifications(userNotificationPreferences, cmd, [emailBodyTemplate])
+      getAllSendMessageNotifications(userNotificationPreferences, cmd, [
+        emailBodyTemplate,
+      ])
     ).toEqual(expectedResult);
   });
 
@@ -418,7 +404,11 @@ describe("getNotifications with SetTextNotificationCommand and EmailNotification
     ];
 
     expect(
-      getNotifications(userNotificationPreferences, cmd, noTemplates)
+      getAllSendMessageNotifications(
+        userNotificationPreferences,
+        cmd,
+        noTemplates
+      )
     ).toEqual(expectedResult);
   });
 });
@@ -447,9 +437,11 @@ describe("getNotifications with SetTextNotificationCommand and SmsNotification",
 
     const expectedResult: Either<TemplateDoesNotExist, SmsNotification> =
       E.right(expectedNotification);
-    const result = getNotifications(userNotificationPreferences, cmd, [
-      smsBodyTemplate,
-    ]);
+    const result = getAllSendMessageNotifications(
+      userNotificationPreferences,
+      cmd,
+      [smsBodyTemplate]
+    );
 
     expect(result).toEqual([expectedResult]);
   });
@@ -497,7 +489,7 @@ describe("getNotifications with SendOrderDispatchedCommand and SmsNotification",
 
     const expectedResult: Either<TemplateDoesNotExist, SmsNotification> =
       E.right(expectedNotification);
-    const result = getSendOrderDispatchedNotifications(
+    const result = getAllSendOrderDispatchedNotifications(
       userNotificationPreferences,
       cmd,
       [smsBodyTemplate]
