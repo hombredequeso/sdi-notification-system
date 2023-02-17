@@ -11,7 +11,7 @@ type SendTextNotificationCommand = {
   userId: UUID;
 };
 
-type CommandType = "SendTextNotificationCommand";
+type CommandType = "SendTextNotificationCommand" | "SendOrderDispatchedCommand";
 
 type EmailNotification = { emailAddress: EmailAddress; body: string };
 type SmsNotification = { phoneNumber: SmsPhoneNumber; text: string };
@@ -48,6 +48,7 @@ type NotificationTemplate = {
 };
 
 import * as Mustache from "mustache";
+
 import exp from "constants";
 const generateEmail = (
   preferredName: string,
@@ -221,8 +222,10 @@ const getEmailNotifications = (
   cmd: SendTextNotificationCommand,
   templates: NotificationTemplate[]
 ): Either<TemplateDoesNotExist, Notification>[] => {
+  const emailNotifications =
+    userNotificationPreferences.notificationRegistrations;
   return pipe(
-    userNotificationPreferences.notificationRegistrations,
+    emailNotifications,
     A.filter(isEmailNotificationRegistration),
     A.map((emailNotificationRegistration) => {
       const notificationTemplateE = getTemplate(
@@ -242,6 +245,59 @@ const getEmailNotifications = (
         )
       );
     })
+  );
+};
+
+const getOrderDispatchedSmsNotification = (
+  registration: SmsNotificationRegistration,
+  cmd: SendOrderDispatchedCommand,
+  template: string
+): SmsNotification => {
+  return {
+    phoneNumber: registration.phoneNumber,
+    text: Mustache.render(template, { order: cmd.order }),
+  };
+};
+
+const getOrderDispatchedSmsNotifications = (
+  userNotificationPreferences: UserNotificationPreferences,
+  cmd: SendOrderDispatchedCommand,
+  templates: NotificationTemplate[]
+): Either<TemplateDoesNotExist, Notification>[] => {
+  const smsNotifications: Either<TemplateDoesNotExist, Notification>[] = pipe(
+    userNotificationPreferences.notificationRegistrations,
+    A.filter(isSmsNotificationRegistration),
+    A.map((smsNotificationRegistration) => {
+      const notificationTemplateE = getTemplate(
+        templates,
+        "SendOrderDispatchedCommand",
+        "SmsNotificationRegistration"
+      );
+
+      return pipe(
+        notificationTemplateE,
+        E.map((notificationTemplate) =>
+          getOrderDispatchedSmsNotification(
+            smsNotificationRegistration,
+            cmd,
+            notificationTemplate.template
+          )
+        )
+      );
+    })
+  );
+  return smsNotifications;
+};
+
+const getSendOrderDispatchedNotifications = (
+  userNotificationPreferences: UserNotificationPreferences,
+  cmd: SendOrderDispatchedCommand,
+  templates: NotificationTemplate[]
+): Either<TemplateDoesNotExist, Notification>[] => {
+  return getOrderDispatchedSmsNotifications(
+    userNotificationPreferences,
+    cmd,
+    templates
   );
 };
 
@@ -371,6 +427,58 @@ describe("getNotifications with SetTextNotificationCommand and SmsNotification",
     const result = getNotifications(userNotificationPreferences, cmd, [
       smsBodyTemplate,
     ]);
+
+    expect(result).toEqual([expectedResult]);
+  });
+});
+
+type OrderDispatched = {
+  orderId: string;
+  orderSummary: string;
+  dispatchDate: string;
+  message: string;
+};
+
+type SendOrderDispatchedCommand = {
+  order: OrderDispatched;
+  userId: UUID;
+};
+
+describe("getNotifications with SendOrderDispatchedCommand and SmsNotification", () => {
+  test("returns a notification when there is one notifications to send", () => {
+    const userNotificationPreferences: UserNotificationPreferences = {
+      userId: uuidv4(),
+      notificationRegistrations: [smsNotificationRegistration("0404 123 456")],
+    };
+    const cmd: SendOrderDispatchedCommand = {
+      userId: userNotificationPreferences.userId,
+      order: {
+        orderId: "TheOrderId",
+        orderSummary: "OrderSummary",
+        dispatchDate: "1/2/2023",
+        message: "Thank-you for shopping with us",
+      },
+    };
+
+    const smsBodyTemplate: NotificationTemplate = {
+      commandType: "SendOrderDispatchedCommand",
+      registrationType: "SmsNotificationRegistration",
+      template:
+        "{{order.orderId}}: {{order.orderSummary}} was shipped {{{order.dispatchDate}}}. {{order.message}}",
+    };
+
+    const expectedNotification: SmsNotification = {
+      phoneNumber: "0404 123 456",
+      text: "TheOrderId: OrderSummary was shipped 1/2/2023. Thank-you for shopping with us",
+    };
+
+    const expectedResult: Either<TemplateDoesNotExist, SmsNotification> =
+      E.right(expectedNotification);
+    const result = getSendOrderDispatchedNotifications(
+      userNotificationPreferences,
+      cmd,
+      [smsBodyTemplate]
+    );
 
     expect(result).toEqual([expectedResult]);
   });
