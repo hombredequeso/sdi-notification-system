@@ -14,7 +14,7 @@ type SendTextNotificationCommand = {
 type CommandType = "SendTextNotificationCommand";
 
 type EmailNotification = { emailAddress: EmailAddress; body: string };
-type SmsNotification = { smsPhoneNumber: SmsPhoneNumber; text: string };
+type SmsNotification = { phoneNumber: SmsPhoneNumber; text: string };
 type AndroidNotification = { deviceId: AndroidDeviceId; message: string };
 type IosNotification = { deviceId: IosDeviceId; message: string };
 
@@ -80,11 +80,13 @@ const emailNotificationRegistration = (emailAddress: EmailAddress) => ({
 
 type SmsNotificationRegistration = {
   _type: string;
-  smsPhoneNumber: SmsPhoneNumber;
+  phoneNumber: SmsPhoneNumber;
 };
-const smsNotificationRegistration = (sms: SmsPhoneNumber) => ({
+const smsNotificationRegistration = (
+  phoneNumber: SmsPhoneNumber
+): SmsNotificationRegistration => ({
   _type: "SmsNotificationRegistration",
-  sms: sms,
+  phoneNumber: phoneNumber,
 });
 
 type AndroidNotificationRegistration = {
@@ -175,12 +177,22 @@ const getEmailNotifications = (
   body: Mustache.render(template, { message: cmd.message }),
 });
 
+const getSmsNotification = (
+  registration: SmsNotificationRegistration,
+  cmd: SendTextNotificationCommand,
+  template: string
+): SmsNotification => ({
+  phoneNumber: registration.phoneNumber,
+  text: Mustache.render(template, { message: cmd.message }),
+});
+
 const getNotifications = (
   userNotificationPreferences: UserNotificationPreferences,
   cmd: SendTextNotificationCommand,
   templates: NotificationTemplate[]
-): Either<TemplateDoesNotExist, EmailNotification>[] => {
-  const notifications = pipe(
+): Either<TemplateDoesNotExist, Notification>[] => {
+  // Email
+  const notifications: Either<TemplateDoesNotExist, Notification>[] = pipe(
     userNotificationPreferences.notificationRegistrations,
     A.filter(isEmailNotificationRegistration),
     A.map((emailNotificationRegistration) => {
@@ -202,10 +214,34 @@ const getNotifications = (
       );
     })
   );
-  return notifications;
+
+  // SMS:
+  const smsNotifications: Either<TemplateDoesNotExist, Notification>[] = pipe(
+    userNotificationPreferences.notificationRegistrations,
+    A.filter(isSmsNotificationRegistration),
+    A.map((smsNotificationRegistration) => {
+      const notificationTemplateE = getTemplate(
+        templates,
+        "SendTextNotificationCommand",
+        "SmsNotificationRegistration"
+      );
+
+      return pipe(
+        notificationTemplateE,
+        E.map((notificationTemplate) =>
+          getSmsNotification(
+            smsNotificationRegistration,
+            cmd,
+            notificationTemplate.template
+          )
+        )
+      );
+    })
+  );
+  return pipe([notifications, smsNotifications], A.flatten);
 };
 
-describe("getNotifications", () => {
+describe("getNotifications with SetTextNotificationCommand and EmailNotification", () => {
   test("returns nothing when there are no notifications to send", () => {
     const userNotificationPreferences: UserNotificationPreferences = {
       userId: uuidv4(),
@@ -287,5 +323,37 @@ describe("getNotifications", () => {
     expect(
       getNotifications(userNotificationPreferences, cmd, noTemplates)
     ).toEqual(expectedResult);
+  });
+});
+
+describe("getNotifications with SetTextNotificationCommand and SmsNotification", () => {
+  test("returns a notification when there is one notifications to send", () => {
+    const userNotificationPreferences: UserNotificationPreferences = {
+      userId: uuidv4(),
+      notificationRegistrations: [smsNotificationRegistration("0404 123 456")],
+    };
+    const cmd: SendTextNotificationCommand = {
+      userId: userNotificationPreferences.userId,
+      message: "hello world",
+    };
+
+    const smsBodyTemplate: NotificationTemplate = {
+      commandType: "SendTextNotificationCommand",
+      registrationType: "SmsNotificationRegistration",
+      template: "{{message}}",
+    };
+
+    const expectedNotification: SmsNotification = {
+      phoneNumber: "0404 123 456",
+      text: "hello world",
+    };
+
+    const expectedResult: Either<TemplateDoesNotExist, SmsNotification> =
+      E.right(expectedNotification);
+    const result = getNotifications(userNotificationPreferences, cmd, [
+      smsBodyTemplate,
+    ]);
+
+    expect(result).toEqual([expectedResult]);
   });
 });
