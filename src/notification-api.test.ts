@@ -11,6 +11,18 @@ type SendTextNotificationCommand = {
   userId: UUID;
 };
 
+type OrderDispatched = {
+  orderId: string;
+  orderSummary: string;
+  dispatchDate: string;
+  message: string;
+};
+
+type SendOrderDispatchedCommand = {
+  order: OrderDispatched;
+  userId: UUID;
+};
+
 type CommandType = "SendTextNotificationCommand" | "SendOrderDispatchedCommand";
 
 type EmailNotification = { emailAddress: EmailAddress; body: string };
@@ -183,17 +195,17 @@ const getCmdNotificationsT =
   (cmd: TCommand) =>
   (
     notificationRegistrations: TNotificationRegistration[]
-  ): Either<TemplateDoesNotExist, TNotification>[] =>
-    pipe(
-      notificationRegistrations,
-      A.map((notificationRegistration) => {
-        const notificationTemplateE = getTemplate(
-          templates,
-          commandType,
-          registrationType
-        );
+  ): Either<TemplateDoesNotExist, TNotification>[] => {
+    const notificationTemplateE = getTemplate(
+      templates,
+      commandType,
+      registrationType
+    );
 
-        return pipe(
+    return pipe(
+      notificationRegistrations,
+      A.map((notificationRegistration) =>
+        pipe(
           notificationTemplateE,
           E.map((notificationTemplate) =>
             getNotifications(
@@ -202,9 +214,10 @@ const getCmdNotificationsT =
               notificationTemplate.template
             )
           )
-        );
-      })
+        )
+      )
     );
+  };
 
 // SendText : Email
 
@@ -290,6 +303,36 @@ const getOrderDispatchedSmsNotifications = (
     userNotificationPreferences.notificationRegistrations,
     A.filter(isSmsNotificationRegistration),
     getOrderDispatchSmsNotificationsT(templates)(cmd)
+  );
+
+// OrderDispatched : Email
+
+const getOrderDispatchedEmailNotification = (
+  registration: EmailNotificationRegistration,
+  cmd: SendOrderDispatchedCommand,
+  template: string
+): EmailNotification => {
+  return {
+    emailAddress: registration.emailAddress,
+    body: Mustache.render(template, { order: cmd.order }),
+  };
+};
+
+const getOrderDispatchEmailNotificationsT = getCmdNotificationsT(
+  getOrderDispatchedEmailNotification,
+  "SendOrderDispatchedCommand",
+  "EmailNotificationRegistration"
+);
+
+const getOrderDispatchedEmailNotifications = (
+  userNotificationPreferences: UserNotificationPreferences,
+  cmd: SendOrderDispatchedCommand,
+  templates: NotificationTemplate[]
+): Either<TemplateDoesNotExist, Notification>[] =>
+  pipe(
+    userNotificationPreferences.notificationRegistrations,
+    A.filter(isEmailNotificationRegistration),
+    getOrderDispatchEmailNotificationsT(templates)(cmd)
   );
 
 // Top level
@@ -446,18 +489,6 @@ describe("getNotifications with SetTextNotificationCommand and SmsNotification",
     expect(result).toEqual([expectedResult]);
   });
 });
-
-type OrderDispatched = {
-  orderId: string;
-  orderSummary: string;
-  dispatchDate: string;
-  message: string;
-};
-
-type SendOrderDispatchedCommand = {
-  order: OrderDispatched;
-  userId: UUID;
-};
 
 describe("getNotifications with SendOrderDispatchedCommand and SmsNotification", () => {
   test("returns a notification when there is one notifications to send", () => {
