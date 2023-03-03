@@ -1,45 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
 
-type UUID = string;
-type EmailAddress = string;
-type SmsPhoneNumber = string;
-type AndroidDeviceId = string;
-type IosDeviceId = string;
-
-type SendTextNotificationCommand = {
-  message: string;
-  userId: UUID;
-};
-
-type OrderDispatched = {
-  orderId: string;
-  orderSummary: string;
-  dispatchDate: string;
-  message: string;
-};
-
-type SendOrderDispatchedCommand = {
-  order: OrderDispatched;
-  userId: UUID;
-};
-
-type CommandType = "SendTextNotificationCommand" | "SendOrderDispatchedCommand";
-
-type EmailNotification = { emailAddress: EmailAddress; body: string };
-type SmsNotification = { phoneNumber: SmsPhoneNumber; text: string };
-type AndroidNotification = { deviceId: AndroidDeviceId; message: string };
-type IosNotification = { deviceId: IosDeviceId; message: string };
-
-type Notification =
-  | EmailNotification
-  | SmsNotification
-  | IosNotification
-  | AndroidNotification;
-
-type UserNotificationPreferences = {
-  userId: UUID;
-  notificationRegistrations: NotificationRegistration[];
-};
 
 import * as O from "fp-ts/Option";
 import { Option } from "fp-ts/Option";
@@ -53,34 +13,66 @@ import { pipe } from "fp-ts/function";
 
 import { findFirst } from "fp-ts/Array";
 
-type NotificationTemplate = {
-  commandType: CommandType;
-  registrationType: NotificationRegistrationType;
-  template: string;
-};
-
 import * as Mustache from "mustache";
 
-import exp from "constants";
-const generateEmail = (
-  preferredName: string,
-  cmd: SendTextNotificationCommand,
-  template: string
-) => Mustache.render(template, { preferredName, message: cmd.message });
 
-describe("generateEmail", () => {
-  test("returns right thing", () => {
-    const template = "Dear {{preferredName}}, {{message}}";
+type UUID = string;
+type EmailAddress = string;
+type SmsPhoneNumber = string;
+type AndroidDeviceId = string;
+type IosDeviceId = string;
 
-    expect(
-      generateEmail(
-        "Mark",
-        { message: "this is a message", userId: uuidv4() },
-        template
-      )
-    ).toEqual("Dear Mark, this is a message");
-  });
-});
+// Commands, for sending different sorts of notifications
+
+type SendTextNotificationCommand = {
+  message: string;
+  userId: UUID;
+};
+
+
+type SendOrderDispatchedCommand = {
+  order: OrderDispatched;
+  userId: UUID;
+};
+
+type OrderDispatched = {
+  orderId: string;
+  orderSummary: string;
+  dispatchDate: string;
+  message: string;
+};
+
+type CommandType = "SendTextNotificationCommand" | "SendOrderDispatchedCommand";
+
+// Different methods of notificaitons
+
+type EmailNotification = { emailAddress: EmailAddress; body: string };
+type SmsNotification = { phoneNumber: SmsPhoneNumber; text: string };
+type AndroidNotification = { deviceId: AndroidDeviceId; message: string };
+type IosNotification = { deviceId: IosDeviceId; message: string };
+
+type Notification =
+  | EmailNotification
+  | SmsNotification
+  | IosNotification
+  | AndroidNotification;
+
+
+// User preferences - what method of notification to use
+type UserNotificationPreferences = {
+  userId: UUID;
+  notificationRegistrations: NotificationRegistration[];
+};
+
+type NotificationRegistration =
+  | EmailNotificationRegistration
+  | SmsNotificationRegistration;
+// | AndroidNotificationRegistration
+// | IosNotificationRegistration;
+
+type NotificationRegistrationType =
+  | "EmailNotificationRegistration"
+  | "SmsNotificationRegistration";
 
 type EmailNotificationRegistration = {
   _type: string;
@@ -91,16 +83,27 @@ const emailNotificationRegistration = (emailAddress: EmailAddress) => ({
   emailAddress: emailAddress,
 });
 
+const isEmailNotificationRegistration = (
+  n: NotificationRegistration
+): n is EmailNotificationRegistration =>
+  n._type === "EmailNotificationRegistration";
+
 type SmsNotificationRegistration = {
   _type: string;
   phoneNumber: SmsPhoneNumber;
 };
+
 const smsNotificationRegistration = (
   phoneNumber: SmsPhoneNumber
 ): SmsNotificationRegistration => ({
   _type: "SmsNotificationRegistration",
   phoneNumber: phoneNumber,
 });
+
+const isSmsNotificationRegistration = (
+  n: NotificationRegistration
+): n is SmsNotificationRegistration =>
+  n._type === "SmsNotificationRegistration";
 
 type AndroidNotificationRegistration = {
   _type: string;
@@ -120,25 +123,36 @@ const iosNotificationRegistration = (ios: IosDeviceId) => ({
   ios: ios,
 });
 
-type NotificationRegistration =
-  | EmailNotificationRegistration
-  | SmsNotificationRegistration;
-// | AndroidNotificationRegistration
-// | IosNotificationRegistration;
+// Template for a notification:
+//  For a given commandType, and method of notification (NotificationRegistrationType),
+//  use this template.
+type NotificationTemplate = {
+  commandType: CommandType;
+  registrationType: NotificationRegistrationType;
+  template: string;
+};
 
-type NotificationRegistrationType =
-  | "EmailNotificationRegistration"
-  | "SmsNotificationRegistration";
+// Testing mustache template rendering.
 
-const isEmailNotificationRegistration = (
-  n: NotificationRegistration
-): n is EmailNotificationRegistration =>
-  n._type === "EmailNotificationRegistration";
+const generateEmail = (
+  preferredName: string,
+  cmd: SendTextNotificationCommand,
+  template: string
+) => Mustache.render(template, { preferredName, message: cmd.message });
 
-const isSmsNotificationRegistration = (
-  n: NotificationRegistration
-): n is SmsNotificationRegistration =>
-  n._type === "SmsNotificationRegistration";
+describe("generateEmail", () => {
+  test("returns right thing", () => {
+    const template = "Dear {{preferredName}}, {{message}}";
+
+    expect(
+      generateEmail(
+        "Mark",
+        { message: "this is a message", userId: uuidv4() },
+        template
+      )
+    ).toEqual("Dear Mark, this is a message");
+  });
+});
 
 type TemplateDoesNotExist = {
   commandType: CommandType;
@@ -180,6 +194,13 @@ const getTemplate = (
   );
   return notificationTemplateE;
 };
+
+// The main generic, pipeline.
+// given:
+//  * a way to getNotifications
+//  * notificaiton templates
+//  * a command to send some sort of notifications
+// generate a list of notifications (or errors)
 
 const getCmdNotificationsT =
   <TNotificationRegistration, TNotification, TCommand>(
@@ -362,6 +383,8 @@ const getAllSendMessageNotifications = (
     A.flatten
   );
 };
+
+// Tests:
 
 describe("getNotifications with SetTextNotificationCommand and EmailNotification", () => {
   test("returns nothing when there are no notifications to send", () => {
