@@ -25,6 +25,29 @@ const TestNotificatonBody = t.type({
   userId: t.string
 })
 
+import amqplib, { Channel, Connection, Options } from 'amqplib'
+// rabbitmq to be global variables
+let channel: Channel, connection: Connection
+let options: Options.AssertQueue = {durable: false}
+
+
+connect()
+
+// connect to rabbitmq
+async function connect() {
+  try {
+      // rabbitmq default port is 5672
+    const amqpServer = 'amqp://localhost:5672'
+    connection = await amqplib.connect(amqpServer)
+    channel = await connection.createChannel()
+
+    // make sure that the order channel is created, if not this statement will create it
+    await channel.assertQueue('hello', options);
+  } catch (error) {
+    console.log(error)
+  }
+}
+
 
 app.post('/testnotification', (req: Request, res: Response) => {
   // for now, assume the best :-)
@@ -51,6 +74,7 @@ app.post('/testnotification', (req: Request, res: Response) => {
       template: "{{message}}"
     };
 
+
   const result =  getAllSendMessageNotifications(
     userNotificationPreferences,
     command,
@@ -58,7 +82,36 @@ app.post('/testnotification', (req: Request, res: Response) => {
   );
   console.log(JSON.stringify(result));
 
-  res.send(command);
+  const commandId = uuidv4();
+
+  const messageHeader = {
+    messageId: commandId,
+    timestamp: new Date(),
+    messageType: 'SendTextNotificationCommand'
+  };
+
+  const message = {
+    header: messageHeader,
+    body: command
+  };
+
+
+  // send a message to all the services connected to 'order' queue, add the date to differentiate between them
+  channel.sendToQueue(
+    'hello',
+    Buffer.from(
+      JSON.stringify(message)
+    ),
+  )
+
+  const responseBody = {
+    task: {
+      href: `/testnotification/${commandId}`,
+      id: commandId
+    }
+  }
+
+  res.status(202).send(responseBody);
 } )
 
 app.listen(port, () => {
