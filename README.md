@@ -4,6 +4,21 @@ Working towards messaging based, but currently a simple api.
 Loosely based around:
 Alex Xu, _System Design Interview_, chapter 10 (Design a notification system)
 
+# Getting Started
+
+```
+yarn
+yarn test
+
+
+docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3.11-management
+yarn start
+```
+
+Currently system runs sychronously, message queue is unused experimental. To see the messages:
+```
+node ./scripts/receive.js
+```
 
 # Messaging with RabbitMQ
 

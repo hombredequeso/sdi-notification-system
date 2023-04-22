@@ -1,3 +1,4 @@
+import * as t from 'io-ts'
 
 export type UUID = string;
 export type EmailAddress = string;
@@ -5,13 +6,14 @@ export type SmsPhoneNumber = string;
 export type AndroidDeviceId = string;
 export type IosDeviceId = string;
 
+
 // Commands, for sending different sorts of notifications
 
-export type SendTextNotificationCommand = {
-  message: string;
-  userId: UUID;
-};
-
+export const SendTextNotificationCommandT = t.type({
+  message: t.string,
+  userId: t.string
+})
+export type SendTextNotificationCommand = t.TypeOf<typeof SendTextNotificationCommandT>;
 
 export type SendOrderDispatchedCommand = {
   order: OrderDispatched;
@@ -24,6 +26,12 @@ export type OrderDispatched = {
   dispatchDate: string;
   message: string;
 };
+
+export type PromotionNotificationCommand = {
+  userId: UUID,
+  promootionNumber: UUID
+
+}
 
 
 export type CommandType = "SendTextNotificationCommand" | "SendOrderDispatchedCommand";
